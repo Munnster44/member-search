@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynamic Member Management Tool — v41-PWA</title>
+<meta name="theme-color" content="#007bff">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<!-- XLSX: cached by service worker for offline use after first load -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --primary:#007bff;
+  --primary-dark:#0056b3;
+  --text:#333;
+  --bg:#f9f9f9;
+}
+*{box-sizing:border-box}
+body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);margin:0;padding:0;color:var(--text)}
+header{
+  background:var(--primary);
+  color:#fff;
+  padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+  position:sticky;top:0;z-index:1000;
+}
+header .title{font-size:18px;font-weight:bold}
+header .version{opacity:.9;font-size:14px}
+header .actions button{
+  background:#fff;color:var(--primary);border:0;border-radius:8px;padding:8px 12px;font-weight:bold;cursor:pointer
+}
+header .actions button:hover{background:#eef5ff}
+
+.container{padding:16px;max-width:1100px;margin:0 auto}
+h2{text-align:center;margin:6px 0 2px 0}
+small.helper{display:block;text-align:center;color:#666;margin-bottom:12px}
+
+input,button{font-size:1em;padding:6px;margin:4px 0;border-radius:6px;border:1px solid #ccc}
+input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 3px rgba(0,123,255,0.5)}
+button{font-weight:bold;cursor:pointer;transition:.2s}
+.btn-primary{background:var(--primary);color:#fff;border:1px solid var(--primary)}
+.btn-primary:hover{background:var(--primary-dark)}
+.btn-success{background:#28a745;color:#fff;border:1px solid #28a745}
+.btn-danger{background:#dc3545;color:#fff;border:1px solid #dc3545}
+.btn-warning{background:#ffc107;color:#000;border:1px solid #ffc107}
+.btn-secondary{background:#6c757d;color:#fff;border:1px solid #6c757d}
+
+table{width:100%;border-collapse:collapse;margin-top:10px;background:#fff;border-radius:8px;overflow:hidden}
+th,td{border:1px solid #ddd;padding:8px;text-align:left}
+th{background:var(--primary);color:#fff;position:sticky;top:0}
+tr:nth-child(even){background:#f2f6ff}
+tr:hover{background:#e6f3ff;cursor:pointer}
+
+#filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+#filters input{flex:1 1 160px;background:#eef5ff;border:1px solid var(--primary)}
+
+#formPage{display:none;background:#fff;padding:20px;border-radius:12px;max-width:700px;max-height:78vh;margin:15px auto;
+box-shadow:0 2px 6px rgba(0,0,0,.08);overflow-y:auto}
+#formPage label{display:block;font-weight:bold;margin-top:10px}
+
+.pagination{text-align:center;margin-top:10px}
+.pagination button{margin:2px;padding:6px 9px;border-radius:6px}
+.pagination button.current{background:var(--primary);color:white;cursor:default}
+
+footer{
+  margin-top:24px;background:#fff;border-top:2px solid #e9ecef;color:#444;
+  padding:12px 16px;text-align:center
+}
+
+#readmeModal{display:none;position:fixed;top:8%;left:50%;transform:translateX(-50%);
+width:90%;max-width:850px;background:white;border:2px solid var(--primary);border-radius:12px;
+padding:18px;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:9999;max-height:80vh;overflow-y:auto}
+#readmeModal pre{white-space:pre-wrap;font-family:Consolas,monospace;background:#f8f9fa;
+padding:12px;border-radius:8px;border:1px solid #e1e4e8}
+#closeModal{background:var(--primary);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;float:right}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">Dynamic Member Management Tool</div>
+  <div class="version">v41-PWA • Offline Edition</div>
+  <div class="actions">
+    <button id="installBtn" hidden>Install App</button>
+    <button class="btn-secondary" onclick="viewReadMe()">📖 Read Me</button>
+  </div>
+</header>
+
+<div class="container">
+  <h2>Member List</h2>
+  <small class="helper">Upload an Excel file to begin. Use filters below to quickly find a member. Click a row to edit.</small>
+
+  <!-- Upload -->
+  <div>
+    <label><b>Upload Excel File:</b></label>
+    <input type="file" id="excelFile" accept=".xlsx,.xls">
+  </div>
+
+  <!-- Search Page -->
+  <div id="searchPage">
+    <div id="filters"></div>
+    <button class="btn-warning" onclick="clearFilters()">Clear Filters</button>
+    <div id="recordCount" style="font-weight:bold;color:var(--primary);margin-top:6px"></div>
+
+    <div style="overflow-x:auto;max-height:420px;margin-top:10px;">
+      <table id="memberTable"><thead></thead><tbody></tbody></table>
+    </div>
+
+    <div class="pagination" id="pagination"></div>
+    <div style="margin-top:10px;">
+      <button class="btn-primary" onclick="addNewMember()">Add New Member</button>
+      <button class="btn-success" onclick="exportExcel()">Export Updated Excel</button>
+    </div>
+  </div>
+
+  <!-- Form Page -->
+  <div id="formPage">
+    <h3>Member Form</h3>
+    <div id="formFields"></div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-success" onclick="addOrUpdateMember()">Add / Update Member</button>
+      <button class="btn-danger" onclick="deleteMember()">Delete Member</button>
+      <button class="btn-warning" onclick="clearForm()">Clear Form</button>
+      <button class="btn-secondary" onclick="backToSearch()">Back to Search</button>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Dynamic Member Management Tool — <strong>v41-PWA</strong> • PWA Offline Edition • © 2025 Glen Carruthers
+  <div><a href="#" onclick="viewReadMe();return false;">View embedded README</a></div>
+</footer>
+
+<!-- ReadMe Modal -->
+<div id="readmeModal" role="dialog" aria-modal="true" aria-label="Read Me">
+  <button id="closeModal" onclick="document.getElementById('readmeModal').style.display='none'">Close ✖</button>
+  <h3>📘 Dynamic Member Management Tool – Help Guide</h3>
+  <pre id="readmeContent"></pre>
+</div>
+
+<script>
+/* ---------- PWA Install Prompt ---------- */
+let deferredPrompt;
+const installBtn = document.getElementById('installBtn');
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBtn.hidden = false;
+});
+installBtn?.addEventListener('click', async() => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  installBtn.hidden = true;
+});
+
+/* ---------- Service Worker Registration ---------- */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js')
+      .catch(err => console.error('SW registration failed', err));
+  });
+}
+
+/* ---------- App Logic (kept from your 41-7 build, now in PWA shell) ---------- */
+let members=[],filteredMembers=[],tableColumns=[],currentMemberIndex=-1,filterValues={},currentPage=1,rowsPerPage=25;
+
+const readmeText = `Dynamic Member Management Tool
+----------------------------------
+
+Overview:
+This tool lets you view, filter, edit, and manage membership data directly from an Excel file in your browser. No installation or server connection is required.
+
+Features:
+• Excel Upload (.xlsx or .xls)
+• Dynamic Filters (case-insensitive)
+• Auto-Open Form for single matches
+• Record Counter and Pagination
+• Editable Form with Add / Update / Delete
+• Export Updated Excel file
+• View Read Me (popup help)
+• Download Read Me (save a local copy)
+
+Instructions:
+1. Open 'index.html' in your browser (Google Chrome or Microsoft Edge recommended).
+2. Click "Upload Excel File" and select your member list.
+3. Use filters to search by any column.
+   - If one record matches, it opens automatically.
+   - If several match, click a row to open it.
+4. Add, edit, or delete members as needed.
+5. Use "Clear Filters" to reset your search.
+6. Click "Export Updated Excel" to download your updated data.
+7. "View Read Me" opens this guide on-screen.
+8. "Download Read Me" saves this guide as a text file.
+
+Notes:
+• All processing happens locally in your browser.
+• Your Excel file is never uploaded to a server.
+• Works best in Google Chrome or Microsoft Edge on Windows or macOS.
+
+Version: v41-PWA
+© 2025 Dynamic Member Management Utility - Copyright: Glen Carruthers`;
+
+function viewReadMe(){
+  document.getElementById('readmeContent').textContent = readmeText;
+  document.getElementById('readmeModal').style.display='block';
+}
+function downloadReadMe(){
+  const blob = new Blob([readmeText],{type:'text/plain'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'README.txt';
+  link.click();
+}
+
+document.getElementById('excelFile').addEventListener('change',function(e){
+  const file=e.target.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(evt){
+    const data=new Uint8Array(evt.target.result);
+    const wb=XLSX.read(data,{type:'array'});
+    const sheet=wb.Sheets[wb.SheetNames[0]];
+    const raw=XLSX.utils.sheet_to_json(sheet,{defval:''});
+    if(raw.length===0){alert('No data found');return;}
+    members=raw.map(r=>{const c={};Object.keys(r).forEach(k=>c[k.trim()]=String(r[k]).trim());return c;});
+    tableColumns=Object.keys(members[0]);
+    filteredMembers=[...members];
+    buildFilters();buildFormFields();renderTable();
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+function buildFilters(){
+  const div=document.getElementById('filters');div.innerHTML='';filterValues={};
+  tableColumns.forEach(col=>{
+    const inp=document.createElement('input');
+    inp.type='text';inp.placeholder='Filter by '+col;
+    inp.addEventListener('input',()=>{filterValues[col]=inp.value.toLowerCase();applyFilters();});
+    div.appendChild(inp);
+  });
+}
+
+function applyFilters(){
+  filteredMembers=members.filter(m=>tableColumns.every(col=>{
+    const val=(m[col]||'').toLowerCase();
+    const q=(filterValues[col]||'').trim();
+    return !q||val.includes(q);
+  }));
+  currentPage=1;renderTable();
+  document.getElementById('recordCount').textContent=`Records Found: ${filteredMembers.length}`;
+  if(filteredMembers.length===1)openForm(filteredMembers[0]);
+}
+
+function clearFilters(){
+  document.querySelectorAll('#filters input').forEach(i=>i.value='');
+  filterValues={};filteredMembers=[...members];
+  currentPage=1;renderTable();
+  document.getElementById('recordCount').textContent=`Records Found: ${filteredMembers.length}`;
+}
+
+function renderTable(){
+  const thead=document.querySelector('#memberTable thead');
+  const tbody=document.querySelector('#memberTable tbody');
+  thead.innerHTML='';tbody.innerHTML='';
+  if(filteredMembers.length===0){document.getElementById('recordCount').textContent='Records Found: 0';return;}
+  const hr=document.createElement('tr');
+  tableColumns.forEach(col=>{const th=document.createElement('th');th.textContent=col;hr.appendChild(th);});
+  thead.appendChild(hr);
+  const start=(currentPage-1)*rowsPerPage,end=start+rowsPerPage;
+  filteredMembers.slice(start,end).forEach(m=>{
+    const tr=document.createElement('tr');
+    tableColumns.forEach(col=>{const td=document.createElement('td');td.textContent=m[col];tr.appendChild(td);});
+    tr.addEventListener('click',()=>openForm(m));tbody.appendChild(tr);
+  });
+  renderPagination();
+  document.getElementById('recordCount').textContent=`Records Found: ${filteredMembers.length}`;
+}
+
+function renderPagination(){
+  const div=document.getElementById('pagination');div.innerHTML='';
+  const total=Math.ceil(filteredMembers.length/rowsPerPage);if(total<=1)return;
+  for(let i=1;i<=total;i++){const b=document.createElement('button');b.textContent=i;
+    if(i===currentPage)b.classList.add('current');
+    b.onclick=()=>{currentPage=i;renderTable();};
+    div.appendChild(b);}
+}
+
+function buildFormFields(){
+  const f=document.getElementById('formFields');f.innerHTML='';
+  tableColumns.forEach(col=>{
+    const l=document.createElement('label');l.textContent=col;
+    const i=document.createElement('input');i.type='text';i.id='form_'+col.replace(/\s+/g,'_');i.style.width='100%';
+    f.appendChild(l);f.appendChild(i);
+  });
+}
+
+function openForm(m){
+  currentMemberIndex=members.findIndex(x=>JSON.stringify(x)===JSON.stringify(m));
+  tableColumns.forEach(col=>{
+    const i=document.getElementById('form_'+col.replace(/\s+/g,'_'));
+    if(i)i.value=m[col];
+  });
+  document.getElementById('searchPage').style.display='none';
+  document.getElementById('formPage').style.display='block';
+  document.getElementById('formPage').scrollTop=0;
+}
+
+function addNewMember(){
+  clearForm();currentMemberIndex=-1;
+  document.getElementById('searchPage').style.display='none';
+  document.getElementById('formPage').style.display='block';
+}
+
+function backToSearch(){
+  document.getElementById('formPage').style.display='none';
+  document.getElementById('searchPage').style.display='block';
+  clearFilters();
+}
+
+function clearForm(){
+  tableColumns.forEach(col=>{
+    const i=document.getElementById('form_'+col.replace(/\s+/g,'_'));
+    if(i)i.value='';
+  });
+  currentMemberIndex=-1;
+}
+
+function addOrUpdateMember(){
+  const m={};tableColumns.forEach(col=>{
+    m[col]=document.getElementById('form_'+col.replace(/\s+/g,'_')).value;
+  });
+  if(currentMemberIndex>=0)members[currentMemberIndex]=m;else members.push(m);
+  filteredMembers=[...members];renderTable();backToSearch();
+}
+
+function deleteMember(){
+  if(currentMemberIndex>=0&&confirm('Delete this record?')){
+    members.splice(currentMemberIndex,1);
+    filteredMembers=[...members];renderTable();backToSearch();
+  }
+}
+
+function exportExcel(){
+  const ws=XLSX.utils.json_to_sheet(members);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
+  XLSX.writeFile(wb,'updated_members.xlsx');
+}
+</script>
+</body>
+</html>
